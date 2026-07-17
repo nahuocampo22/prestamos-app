@@ -15,6 +15,32 @@ const {
 } = require('./utils');
 
 const app = express();
+
+// Si estan configuradas las variables APP_USER y APP_PASSWORD, se le pide
+// usuario y contraseña a cualquiera que quiera entrar (para que no sea de
+// acceso libre para cualquiera que tenga el link). Se configuran en Render,
+// en "Environment".
+const APP_USER = process.env.APP_USER;
+const APP_PASSWORD = process.env.APP_PASSWORD;
+
+if (APP_USER && APP_PASSWORD) {
+  app.use((req, res, next) => {
+    const header = req.headers.authorization || '';
+    const [esquema, credencialesB64] = header.split(' ');
+    if (esquema === 'Basic' && credencialesB64) {
+      const decodificado = Buffer.from(credencialesB64, 'base64').toString('utf8');
+      const separador = decodificado.indexOf(':');
+      const usuario = decodificado.slice(0, separador);
+      const clave = decodificado.slice(separador + 1);
+      if (usuario === APP_USER && clave === APP_PASSWORD) return next();
+    }
+    res.set('WWW-Authenticate', 'Basic realm="Sistema de Prestamos"');
+    res.status(401).send('Acceso restringido. Ingresá el usuario y la contraseña.');
+  });
+} else {
+  console.warn('AVISO: APP_USER / APP_PASSWORD no configurados. El sistema queda accesible sin contraseña para cualquiera que tenga el link.');
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
