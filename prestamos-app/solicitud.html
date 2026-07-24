@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Pedir un préstamo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --azul: #2563eb;
+    --azul-bg: #dbeafe;
+    --gris-txt: #475569;
+    --gris-bg: #f1f5f9;
+    --borde: #e2e8f0;
+    --fondo: #f8fafc;
+    --tarjeta: #ffffff;
+    --texto: #1e293b;
+    --verde: #16a34a;
+    --radio: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--fondo);
+    color: var(--texto);
+  }
+  header {
+    background: linear-gradient(135deg, #1e3a8a, #1e40af);
+    color: white;
+    padding: 22px 20px;
+    text-align: center;
+  }
+  header h1 { margin: 0; font-size: 1.3rem; }
+  header p { margin: 6px 0 0; font-size: 0.85rem; color: #cbd5e1; }
+  main { max-width: 480px; margin: 0 auto; padding: 20px; }
+  .tarjeta {
+    background: var(--tarjeta);
+    border: 1px solid var(--borde);
+    border-radius: var(--radio);
+    padding: 18px;
+  }
+  .campo { margin-bottom: 14px; }
+  .campo label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 5px; color: var(--gris-txt); }
+  .campo input, .campo select, .campo textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--borde);
+    font-size: 0.95rem;
+    background: #fff;
+    font-family: inherit;
+  }
+  .campo-ayuda { font-size: 0.76rem; color: var(--gris-txt); margin-top: 4px; }
+  .fila-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .radio-group { display: flex; gap: 10px; }
+  .radio-opcion {
+    flex: 1;
+    border: 1px solid var(--borde);
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .radio-opcion.selected { border-color: var(--azul); background: var(--azul-bg); color: var(--azul); }
+  button.btn-enviar {
+    width: 100%;
+    border: none;
+    border-radius: 10px;
+    padding: 13px 14px;
+    font-size: 0.98rem;
+    font-weight: 700;
+    cursor: pointer;
+    background: var(--azul);
+    color: white;
+    margin-top: 6px;
+  }
+  button.btn-enviar:active { transform: scale(0.98); }
+  button.btn-enviar:disabled { opacity: 0.6; }
+  .error { color: #dc2626; font-size: 0.85rem; margin-top: 10px; display: none; }
+  .exito {
+    text-align: center;
+    padding: 30px 10px;
+  }
+  .exito .emoji { font-size: 3rem; display: block; margin-bottom: 10px; }
+  .exito h2 { margin: 0 0 8px; }
+  .exito p { color: var(--gris-txt); font-size: 0.92rem; }
+  .oculto { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>💰 Pedir un préstamo</h1>
+  <p>Completá tus datos y te contestamos a la brevedad</p>
+</header>
+
+<main>
+  <div class="tarjeta" id="caja-formulario">
+    <form id="form-solicitud">
+      <div class="campo">
+        <label>Nombre completo *</label>
+        <input type="text" id="nombre" required placeholder="Ej: Fabrizio López">
+      </div>
+      <div class="fila-2">
+        <div class="campo">
+          <label>DNI</label>
+          <input type="text" id="dni" placeholder="Opcional">
+        </div>
+        <div class="campo">
+          <label>Teléfono (WhatsApp) *</label>
+          <input type="text" id="telefono" required placeholder="Ej: 011 15-1234-5678">
+        </div>
+      </div>
+      <div class="campo">
+        <label>¿Cuánto necesitás? *</label>
+        <input type="number" id="monto" required min="0" step="0.01" placeholder="Ej: 65000">
+      </div>
+      <div class="campo">
+        <label>¿Cómo preferís devolverlo?</label>
+        <div class="radio-group">
+          <div class="radio-opcion selected" data-tipo="unico">Pago único</div>
+          <div class="radio-opcion" data-tipo="cuotas">En cuotas</div>
+        </div>
+      </div>
+      <div class="fila-2 oculto" id="caja-cuotas">
+        <div class="campo">
+          <label>Cantidad de cuotas</label>
+          <input type="number" id="num_cuotas" value="4" min="2" step="1">
+        </div>
+        <div class="campo">
+          <label>Frecuencia</label>
+          <select id="frecuencia">
+            <option value="semanal">Semanal</option>
+            <option value="quincenal">Quincenal</option>
+            <option value="mensual" selected>Mensual</option>
+          </select>
+        </div>
+      </div>
+      <div class="campo">
+        <label>¿De parte de quién venís? (opcional)</label>
+        <input type="text" id="referido_por" placeholder="Ej: Gerónimo Kolomiejec">
+      </div>
+      <div class="campo">
+        <label>¿Algo más que quieras contar? (opcional)</label>
+        <textarea id="mensaje" rows="3" placeholder="Contanos lo que necesites..."></textarea>
+      </div>
+      <button type="submit" class="btn-enviar" id="btn-enviar">Enviar solicitud</button>
+      <div class="error" id="error-msg"></div>
+    </form>
+  </div>
+
+  <div class="tarjeta exito oculto" id="caja-exito">
+    <span class="emoji">✅</span>
+    <h2>¡Listo!</h2>
+    <p>Recibimos tu solicitud. Te vamos a contestar por WhatsApp a la brevedad.</p>
+  </div>
+</main>
+
+<script>
+  var tipoPago = 'unico';
+  document.querySelectorAll('.radio-opcion').forEach(function (op) {
+    op.addEventListener('click', function () {
+      document.querySelectorAll('.radio-opcion').forEach(function (o) { o.classList.remove('selected'); });
+      op.classList.add('selected');
+      tipoPago = op.dataset.tipo;
+      document.getElementById('caja-cuotas').classList.toggle('oculto', tipoPago !== 'cuotas');
+    });
+  });
+
+  document.getElementById('form-solicitud').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var errorEl = document.getElementById('error-msg');
+    errorEl.style.display = 'none';
+    var btn = document.getElementById('btn-enviar');
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+
+    var payload = {
+      nombre: document.getElementById('nombre').value.trim(),
+      dni: document.getElementById('dni').value.trim(),
+      telefono: document.getElementById('telefono').value.trim(),
+      monto_solicitado: document.getElementById('monto').value,
+      tipo_pago_preferido: tipoPago,
+      num_cuotas_preferido: document.getElementById('num_cuotas').value,
+      frecuencia_preferida: document.getElementById('frecuencia').value,
+      referido_por: document.getElementById('referido_por').value.trim(),
+      mensaje: document.getElementById('mensaje').value.trim(),
+    };
+
+    fetch('/api/solicitudes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (resp) {
+        return resp.json().then(function (data) { return { ok: resp.ok, data: data }; });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.data.error || 'Ocurrió un error, intentá de nuevo.');
+        document.getElementById('caja-formulario').classList.add('oculto');
+        document.getElementById('caja-exito').classList.remove('oculto');
+      })
+      .catch(function (err) {
+        errorEl.textContent = '⚠️ ' + err.message;
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Enviar solicitud';
+      });
+  });
+</script>
+</body>
+</html>
