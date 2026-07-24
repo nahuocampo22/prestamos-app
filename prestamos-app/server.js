@@ -16,10 +16,49 @@ const {
 
 const app = express();
 
-// Si estan configuradas las variables APP_USER y APP_PASSWORD, se le pide
-// usuario y contraseña a cualquiera que quiera entrar (para que no sea de
-// acceso libre para cualquiera que tenga el link). Se configuran en Render,
-// en "Environment".
+app.use(express.json());
+
+// ---------- Rutas PUBLICAS (sin usuario/contraseña) ----------
+// El formulario de solicitud de prestamo tiene que poder abrirlo cualquiera
+// con el link, sin tener que iniciar sesion. Por eso estas rutas se definen
+// ANTES de activar la proteccion con usuario/contraseña, mas abajo.
+
+app.get('/solicitud', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public-publico', 'solicitud.html'));
+});
+
+app.post('/api/solicitudes', manejarErrores(async (req, res) => {
+  const {
+    nombre, dni, telefono, monto_solicitado,
+    tipo_pago_preferido, num_cuotas_preferido, frecuencia_preferida,
+    referido_por, mensaje,
+  } = req.body || {};
+
+  if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Falta el nombre' });
+  if (!telefono || !telefono.trim()) return res.status(400).json({ error: 'Falta el teléfono' });
+
+  const solicitud = await uno(`
+    INSERT INTO solicitudes (nombre, dni, telefono, monto_solicitado, tipo_pago_preferido, num_cuotas_preferido, frecuencia_preferida, referido_por, mensaje, estado)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pendiente')
+    RETURNING *
+  `, [
+    nombre.trim(),
+    (dni || '').trim() || null,
+    telefono.trim(),
+    monto_solicitado ? Number(monto_solicitado) : null,
+    tipo_pago_preferido || null,
+    num_cuotas_preferido ? parseInt(num_cuotas_preferido, 10) : null,
+    frecuencia_preferida || null,
+    (referido_por || '').trim() || null,
+    (mensaje || '').trim() || null,
+  ]);
+  res.status(201).json(solicitud);
+}));
+
+// A partir de aca, todo lo que sigue requiere usuario y contraseña (si estan
+// configurados). Si estan configuradas las variables APP_USER y APP_PASSWORD,
+// se le pide usuario y contraseña a cualquiera que quiera entrar. Se
+// configuran en Render, en "Environment".
 const APP_USER = process.env.APP_USER;
 const APP_PASSWORD = process.env.APP_PASSWORD;
 
@@ -41,7 +80,6 @@ if (APP_USER && APP_PASSWORD) {
   console.warn('AVISO: APP_USER / APP_PASSWORD no configurados. El sistema queda accesible sin contraseña para cualquiera que tenga el link.');
 }
 
-app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- Helpers ----------
@@ -185,19 +223,16 @@ app.get('/api/prestamos/:id', manejarErrores(async (req, res) => {
   res.json(prestamo);
 }));
 
-app.post('/api/prestamos', manejarErrores(async (req, res) => {
-  const {
-    cliente_id, capital, tasa_interes, tipo_pago,
-    num_cuotas, frecuencia, fecha_inicio, notas,
-  } = req.body || {};
-
-  if (!cliente_id) return res.status(400).json({ error: 'Falta el cliente' });
-  const cliente = await uno('SELECT * FROM clientes WHERE id = $1', [cliente_id]);
-  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+async function crearPrestamoConCuotas(clienteId, datos) {
+  const { capital, tasa_interes, tipo_pago, num_cuotas, frecuencia, fecha_inicio, notas } = datos;
 
   const cap = Number(capital);
   const tasa = Number(tasa_interes) || 0;
-  if (!cap || cap <= 0) return res.status(400).json({ error: 'El capital debe ser mayor a 0' });
+  if (!cap || cap <= 0) {
+    const err = new Error('El capital debe ser mayor a 0');
+    err.status = 400;
+    throw err;
+  }
 
   const esUnico = tipo_pago !== 'cuotas';
   const nCuotas = esUnico ? 1 : Math.max(1, parseInt(num_cuotas, 10) || 1);
@@ -211,7 +246,7 @@ app.post('/api/prestamos', manejarErrores(async (req, res) => {
     INSERT INTO prestamos (cliente_id, capital, tasa_interes, monto_total, ganancia, tipo_pago, num_cuotas, frecuencia, fecha_inicio, estado, notas)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'activo', $10)
     RETURNING *
-  `, [cliente.id, cap, tasa, montoTotal, ganancia, esUnico ? 'unico' : 'cuotas', nCuotas, frec, inicio, notas || null]);
+  `, [clienteId, cap, tasa, montoTotal, ganancia, esUnico ? 'unico' : 'cuotas', nCuotas, frec, inicio, notas || null]);
 
   const fechas = generarFechasCuotas(inicio, nCuotas, frec);
   const montoCuotaBase = redondear(montoTotal / nCuotas);
@@ -233,7 +268,24 @@ app.post('/api/prestamos', manejarErrores(async (req, res) => {
     `, [prestamo.id, idx + 1, monto, cap_c, gan_c, fechas[idx]]);
   }
 
-  res.status(201).json(await prestamoConCuotas(prestamo.id));
+  return prestamo.id;
+}
+
+app.post('/api/prestamos', manejarErrores(async (req, res) => {
+  const { cliente_id, ...datos } = req.body || {};
+  if (!cliente_id) return res.status(400).json({ error: 'Falta el cliente' });
+  const cliente = await uno('SELECT * FROM clientes WHERE id = $1', [cliente_id]);
+  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+  let prestamoId;
+  try {
+    prestamoId = await crearPrestamoConCuotas(cliente.id, datos);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
+
+  res.status(201).json(await prestamoConCuotas(prestamoId));
 }));
 
 app.put('/api/prestamos/:id/cancelar', manejarErrores(async (req, res) => {
@@ -302,6 +354,78 @@ app.get('/api/cuotas/:id/whatsapp', manejarErrores(async (req, res) => {
 
   const mensaje = `${saludo}\n\nMonto: $${montoFmt}\nFecha: ${fechaFmt}${cuota.numero ? `\nCuota N°${cuota.numero}` : ''}\n\nGracias!`;
   res.json({ link: linkWhatsApp(cuota.cliente_telefono, mensaje), mensaje });
+}));
+
+// ---------- Solicitudes de prestamo (pedidas desde el formulario publico) ----------
+// Estas rutas SI requieren usuario y contraseña (estan despues del middleware
+// de autenticacion). Solo la carga del formulario y el POST de arriba son
+// publicos.
+
+app.get('/api/solicitudes', manejarErrores(async (req, res) => {
+  const solicitudes = await q('SELECT * FROM solicitudes ORDER BY creado_en DESC');
+  res.json(solicitudes);
+}));
+
+app.put('/api/solicitudes/:id/rechazar', manejarErrores(async (req, res) => {
+  const solicitud = await uno('SELECT * FROM solicitudes WHERE id = $1', [req.params.id]);
+  if (!solicitud) return res.status(404).json({ error: 'Solicitud no encontrada' });
+  const actualizada = await uno("UPDATE solicitudes SET estado = 'rechazada' WHERE id = $1 RETURNING *", [req.params.id]);
+  res.json(actualizada);
+}));
+
+app.put('/api/solicitudes/:id/aceptar', manejarErrores(async (req, res) => {
+  const solicitud = await uno('SELECT * FROM solicitudes WHERE id = $1', [req.params.id]);
+  if (!solicitud) return res.status(404).json({ error: 'Solicitud no encontrada' });
+  if (solicitud.estado !== 'pendiente') return res.status(400).json({ error: 'Esta solicitud ya fue procesada' });
+
+  const { cliente_id, capital, tasa_interes, tipo_pago, num_cuotas, frecuencia, fecha_inicio, notas } = req.body || {};
+
+  let clienteId = cliente_id;
+  if (!clienteId) {
+    // No se eligio un cliente existente: se crea uno nuevo con los datos de la solicitud.
+    const nuevoCliente = await uno(
+      'INSERT INTO clientes (nombre, dni, telefono, notas) VALUES ($1, $2, $3, $4) RETURNING *',
+      [solicitud.nombre, solicitud.dni, solicitud.telefono, solicitud.referido_por ? `Referido por: ${solicitud.referido_por}` : null]
+    );
+    clienteId = nuevoCliente.id;
+  }
+
+  let prestamoId;
+  try {
+    prestamoId = await crearPrestamoConCuotas(clienteId, {
+      capital: capital ?? solicitud.monto_solicitado,
+      tasa_interes,
+      tipo_pago,
+      num_cuotas: num_cuotas ?? solicitud.num_cuotas_preferido,
+      frecuencia: frecuencia ?? solicitud.frecuencia_preferida,
+      fecha_inicio,
+      notas,
+    });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
+
+  const actualizada = await uno(
+    "UPDATE solicitudes SET estado = 'aceptada', cliente_id = $1, prestamo_id = $2 WHERE id = $3 RETURNING *",
+    [clienteId, prestamoId, req.params.id]
+  );
+  res.json(Object.assign({}, actualizada, { prestamo: await prestamoConCuotas(prestamoId) }));
+}));
+
+app.get('/api/solicitudes/:id/whatsapp', manejarErrores(async (req, res) => {
+  const solicitud = await uno('SELECT * FROM solicitudes WHERE id = $1', [req.params.id]);
+  if (!solicitud) return res.status(404).json({ error: 'Solicitud no encontrada' });
+
+  let mensaje;
+  if (solicitud.estado === 'aceptada') {
+    mensaje = `Hola ${solicitud.nombre}! Te escribo para contarte que tu solicitud de préstamo fue APROBADA. En breve coordinamos los detalles de la entrega. Gracias!`;
+  } else if (solicitud.estado === 'rechazada') {
+    mensaje = `Hola ${solicitud.nombre}! Te escribo para contarte que por el momento no vamos a poder darte el préstamo que solicitaste. Gracias por tu interés!`;
+  } else {
+    mensaje = `Hola ${solicitud.nombre}! Recibimos tu solicitud de préstamo, la estamos revisando y te contestamos a la brevedad. Gracias!`;
+  }
+  res.json({ link: linkWhatsApp(solicitud.telefono, mensaje), mensaje });
 }));
 
 // ---------- Dashboard ----------

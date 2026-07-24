@@ -71,9 +71,29 @@ async function initDb() {
     );
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS solicitudes (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      dni TEXT,
+      telefono TEXT NOT NULL,
+      monto_solicitado DOUBLE PRECISION,
+      tipo_pago_preferido TEXT,
+      num_cuotas_preferido INTEGER,
+      frecuencia_preferida TEXT,
+      referido_por TEXT,
+      mensaje TEXT,
+      estado TEXT NOT NULL DEFAULT 'pendiente',
+      cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+      prestamo_id INTEGER REFERENCES prestamos(id) ON DELETE SET NULL,
+      creado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   await pool.query('CREATE INDEX IF NOT EXISTS idx_cuotas_prestamo ON cuotas(prestamo_id);');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_cuotas_vencimiento ON cuotas(fecha_vencimiento);');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_prestamos_cliente ON prestamos(cliente_id);');
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_solicitudes_estado ON solicitudes(estado);");
 }
 
 module.exports = { pool, initDb };

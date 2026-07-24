@@ -77,6 +77,24 @@ body {
 }
 .tab-btn .tab-icon { font-size: 1.2rem; }
 .tab-btn.active { color: var(--azul); border-bottom-color: var(--azul); font-weight: 600; }
+.tab-btn { position: relative; }
+.tab-badge {
+  position: absolute;
+  top: 4px;
+  right: 18%;
+  background: var(--rojo);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+.tab-badge.hidden { display: none; }
 
 main { max-width: 720px; margin: 0 auto; padding: 16px; }
 

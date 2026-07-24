@@ -120,6 +120,31 @@ inmediatamente en la otra compu con solo actualizar la página (F5).
 
 ---
 
+## Recibir pedidos de préstamo sin responder mensajes
+
+En la pestaña **"Solicitudes"** de la app hay un link público (algo como
+`https://prestamos-app-b67q.onrender.com/solicitud`) que podés compartir con
+cualquiera que te pida un préstamo. Esa persona completa ahí su nombre,
+teléfono, cuánto necesita, cómo prefiere devolverlo, y de parte de quién
+viene — sin que tengas que responderle nada vos.
+
+Esa solicitud aparece automáticamente en la pestaña "Solicitudes" (con un
+numerito rojo avisando cuántas hay pendientes). Desde ahí podés:
+
+- **Aceptar**: elegís el interés y confirmás las condiciones finales — el
+  sistema crea el cliente (si no existía) y el préstamo solo.
+- **Rechazar**: la descarta.
+
+En los dos casos hay un botón para avisarle a esa persona por WhatsApp con
+un mensaje ya armado (aprobado o no).
+
+Ese link es de acceso libre a propósito (para que cualquiera pueda pedir un
+préstamo sin necesitar usuario y contraseña), pero solo sirve para *enviar*
+una solicitud — no muestra ningún dato de tus clientes ni préstamos
+existentes.
+
+---
+
 ## Cómo funcionan los recordatorios de WhatsApp
 
 Igual que antes: el sistema arma el mensaje automáticamente y con un click

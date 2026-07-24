@@ -115,8 +115,11 @@ document.getElementById('btn-ayuda').onclick = () => {
     <div class="help-box" style="margin-bottom:10px">
       <b>4. Mandá el recordatorio</b><br>Apretás "Recordar por WhatsApp" y se abre WhatsApp con el mensaje ya escrito, listo para enviar.
     </div>
-    <div class="help-box">
+    <div class="help-box" style="margin-bottom:10px">
       <b>5. Marcá cuando te pagan</b><br>Apretás "Marcar como pagado" y listo, queda registrado.
+    </div>
+    <div class="help-box">
+      <b>6. Recibí pedidos de préstamo sin responder mensajes</b><br>En la pestaña "Solicitudes" tenés un link para compartir. Quien te pide un préstamo completa sus datos ahí, y vos solo entrás a aceptar o rechazar.
     </div>
   `);
 };
@@ -140,8 +143,22 @@ async function render() {
     if (state.view === 'inicio') await renderInicio(app);
     else if (state.view === 'clientes') await renderClientes(app);
     else if (state.view === 'prestamos') await renderPrestamos(app);
+    else if (state.view === 'solicitudes') await renderSolicitudes(app);
   } catch (err) {
     app.innerHTML = `<div class="empty-state">⚠️ ${escapeHtml(err.message)}</div>`;
+  }
+  actualizarBadgeSolicitudes();
+}
+
+async function actualizarBadgeSolicitudes() {
+  try {
+    const solicitudes = await api('GET', '/api/solicitudes');
+    const pendientes = solicitudes.filter((s) => s.estado === 'pendiente').length;
+    const badge = document.getElementById('badge-solicitudes');
+    badge.textContent = pendientes;
+    badge.classList.toggle('hidden', pendientes === 0);
+  } catch (err) {
+    // si falla, no mostramos badge, no es critico
   }
 }
 
@@ -626,6 +643,258 @@ async function abrirFormPrestamo() {
       } catch (err) {
         showToast('⚠️ ' + err.message);
       }
+    };
+  });
+}
+
+// ---------- Vista: Solicitudes ----------
+
+function badgeEstadoSolicitud(estado) {
+  if (estado === 'aceptada') return '<span class="badge badge-pagada">Aceptada</span>';
+  if (estado === 'rechazada') return '<span class="badge badge-vencida">Rechazada</span>';
+  return '<span class="badge badge-hoy">Pendiente</span>';
+}
+
+async function renderSolicitudes(app) {
+  const solicitudes = await api('GET', '/api/solicitudes');
+  const linkPublico = window.location.origin + '/solicitud';
+  const pendientes = solicitudes.filter((s) => s.estado === 'pendiente');
+  const historial = solicitudes.filter((s) => s.estado !== 'pendiente');
+
+  app.innerHTML = `
+    <div class="help-box">
+      <b>📎 Compartí este link</b> con quien te pida un préstamo, para que cargue sus datos sin que vos tengas que responder nada:
+      <div style="margin-top:8px;word-break:break-all;font-family:monospace;font-size:0.8rem">${escapeHtml(linkPublico)}</div>
+      <div class="item-actions" style="margin-top:10px">
+        <button class="btn btn-secundario" id="btn-copiar-link">📋 Copiar link</button>
+        <button class="btn btn-whatsapp" id="btn-compartir-link">📲 Compartir por WhatsApp</button>
+      </div>
+    </div>
+
+    <div class="section-title" style="margin-top:0">📥 Pendientes</div>
+    <div id="lista-solicitudes-pendientes">${
+      pendientes.length === 0
+        ? `<div class="empty-state"><span class="emoji">📭</span>No hay solicitudes pendientes.</div>`
+        : pendientes.map((s) => filaSolicitud(s)).join('')
+    }</div>
+
+    ${historial.length > 0 ? `
+      <div class="section-title">Historial</div>
+      <div>${historial.map((s) => filaSolicitud(s)).join('')}</div>
+    ` : ''}
+  `;
+
+  document.getElementById('btn-copiar-link').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(linkPublico);
+      showToast('✅ Link copiado');
+    } catch (err) {
+      showToast('⚠️ No se pudo copiar, copialo manualmente');
+    }
+  };
+  document.getElementById('btn-compartir-link').onclick = () => {
+    const mensaje = `Hola! Para pedir un préstamo, completá tus datos acá: ${linkPublico}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(mensaje)}`, '_blank');
+  };
+
+  app.querySelectorAll('[data-aceptar]').forEach((b) => {
+    b.onclick = () => abrirAceptarSolicitud(solicitudes.find((s) => String(s.id) === b.dataset.aceptar));
+  });
+  app.querySelectorAll('[data-rechazar]').forEach((b) => {
+    b.onclick = () => rechazarSolicitud(b.dataset.rechazar);
+  });
+  app.querySelectorAll('[data-avisar]').forEach((b) => {
+    b.onclick = () => avisarSolicitudPorWhatsApp(b.dataset.avisar);
+  });
+}
+
+function filaSolicitud(s) {
+  const formaPago = s.tipo_pago_preferido === 'cuotas'
+    ? `${s.num_cuotas_preferido || '?'} cuotas (${s.frecuencia_preferida || '-'})`
+    : 'Pago único';
+  return `
+    <div class="item-card">
+      <div class="item-card-top">
+        <div>
+          <div class="item-nombre">${escapeHtml(s.nombre)}</div>
+          <div class="item-sub">📞 ${escapeHtml(s.telefono)}${s.dni ? ' · DNI ' + escapeHtml(s.dni) : ''}</div>
+          <div class="item-sub">${formaPago}</div>
+          ${s.referido_por ? `<div class="item-sub">Referido por: ${escapeHtml(s.referido_por)}</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <div class="item-monto">${s.monto_solicitado ? moneda(s.monto_solicitado) : '-'}</div>
+          <div style="margin-top:6px">${badgeEstadoSolicitud(s.estado)}</div>
+        </div>
+      </div>
+      ${s.mensaje ? `<div class="help-box" style="margin-top:10px">${escapeHtml(s.mensaje)}</div>` : ''}
+      <div class="item-actions">
+        ${s.estado === 'pendiente' ? `
+          <button class="btn btn-exito" data-aceptar="${s.id}">✅ Aceptar</button>
+          <button class="btn btn-peligro" data-rechazar="${s.id}">❌ Rechazar</button>
+        ` : `
+          <button class="btn btn-whatsapp" data-avisar="${s.id}">📲 Avisar por WhatsApp</button>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function rechazarSolicitud(id) {
+  confirmarAccion('¿Rechazar esta solicitud de préstamo?', 'Sí, rechazar', async () => {
+    try {
+      await api('PUT', `/api/solicitudes/${id}/rechazar`, {});
+      showToast('Solicitud rechazada');
+      await render();
+    } catch (err) {
+      showToast('⚠️ ' + err.message);
+    }
+  });
+}
+
+async function avisarSolicitudPorWhatsApp(id) {
+  try {
+    const r = await api('GET', `/api/solicitudes/${id}/whatsapp`);
+    window.open(r.link, '_blank');
+  } catch (err) {
+    showToast('⚠️ ' + err.message);
+  }
+}
+
+async function abrirAceptarSolicitud(s) {
+  if (!s) return;
+  const clientes = await api('GET', '/api/clientes');
+  const opcionesClientes = clientes.map((c) => `<option value="${c.id}">${escapeHtml(c.nombre)}</option>`).join('');
+  const tipoPreferido = s.tipo_pago_preferido === 'cuotas' ? 'cuotas' : 'unico';
+
+  openModal(`Aceptar solicitud de ${s.nombre}`, `
+    <div class="campo-ayuda" style="margin-bottom:10px">
+      📞 ${escapeHtml(s.telefono)}${s.dni ? ' · DNI ' + escapeHtml(s.dni) : ''}${s.referido_por ? ' · Referido por ' + escapeHtml(s.referido_por) : ''}
+    </div>
+    <div class="campo">
+      <label>Cliente</label>
+      <select id="f-cliente">
+        <option value="">➕ Crear cliente nuevo con estos datos</option>
+        ${opcionesClientes}
+      </select>
+      <div class="campo-ayuda">Si esta persona ya está cargada como cliente, elegila acá para no duplicarla.</div>
+    </div>
+
+    <div class="fila-2">
+      <div class="campo">
+        <label>Capital a prestar *</label>
+        <input type="number" id="f-capital" value="${s.monto_solicitado || ''}" min="0" step="0.01">
+      </div>
+      <div class="campo">
+        <label>Interés (%) *</label>
+        <input type="number" id="f-tasa" placeholder="Ej: 20" min="0" step="0.01">
+      </div>
+    </div>
+
+    <div class="campo">
+      <label>Forma de pago</label>
+      <div class="radio-group">
+        <div class="radio-opcion ${tipoPreferido === 'unico' ? 'selected' : ''}" data-tipo="unico">Pago único</div>
+        <div class="radio-opcion ${tipoPreferido === 'cuotas' ? 'selected' : ''}" data-tipo="cuotas">En cuotas</div>
+      </div>
+    </div>
+
+    <div id="f-cuotas-box" style="display:${tipoPreferido === 'cuotas' ? 'block' : 'none'}">
+      <div class="fila-2">
+        <div class="campo">
+          <label>Cantidad de cuotas</label>
+          <input type="number" id="f-num-cuotas" value="${s.num_cuotas_preferido || 4}" min="2" step="1">
+        </div>
+        <div class="campo">
+          <label>Frecuencia</label>
+          <select id="f-frecuencia">
+            <option value="semanal" ${s.frecuencia_preferida === 'semanal' ? 'selected' : ''}>Semanal</option>
+            <option value="quincenal" ${s.frecuencia_preferida === 'quincenal' ? 'selected' : ''}>Quincenal</option>
+            <option value="mensual" ${(!s.frecuencia_preferida || s.frecuencia_preferida === 'mensual') ? 'selected' : ''}>Mensual</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="campo">
+      <label>Fecha del préstamo</label>
+      <input type="date" id="f-fecha" value="${hoyISO()}">
+    </div>
+
+    <div class="calc-preview" id="f-preview"></div>
+
+    <button class="btn btn-exito btn-full" id="f-confirmar" style="margin-top:14px">✅ Confirmar y crear préstamo</button>
+  `, (body) => {
+    let tipoPago = tipoPreferido;
+
+    body.querySelectorAll('.radio-opcion').forEach((op) => {
+      op.onclick = () => {
+        body.querySelectorAll('.radio-opcion').forEach((o) => o.classList.remove('selected'));
+        op.classList.add('selected');
+        tipoPago = op.dataset.tipo;
+        body.querySelector('#f-cuotas-box').style.display = tipoPago === 'cuotas' ? 'block' : 'none';
+        actualizarPreview();
+      };
+    });
+
+    function actualizarPreview() {
+      const capital = Number(body.querySelector('#f-capital').value) || 0;
+      const tasa = Number(body.querySelector('#f-tasa').value) || 0;
+      const nCuotas = tipoPago === 'cuotas' ? (Number(body.querySelector('#f-num-cuotas').value) || 1) : 1;
+      const montoTotal = capital * (1 + tasa / 100);
+      const ganancia = montoTotal - capital;
+      const cuotaMonto = montoTotal / nCuotas;
+      body.querySelector('#f-preview').innerHTML = `
+        <div><span>Total a cobrar:</span><b>${moneda(montoTotal)}</b></div>
+        <div><span>Ganancia:</span><b>${moneda(ganancia)}</b></div>
+        ${tipoPago === 'cuotas' ? `<div><span>Cada cuota:</span><b>${moneda(cuotaMonto)}</b></div>` : ''}
+      `;
+    }
+    body.querySelector('#f-capital').addEventListener('input', actualizarPreview);
+    body.querySelector('#f-tasa').addEventListener('input', actualizarPreview);
+    body.querySelector('#f-num-cuotas').addEventListener('input', actualizarPreview);
+    actualizarPreview();
+
+    body.querySelector('#f-confirmar').onclick = async () => {
+      const capital = Number(body.querySelector('#f-capital').value);
+      if (!capital || capital <= 0) { showToast('⚠️ Falta el capital'); return; }
+      const tasa = body.querySelector('#f-tasa').value;
+      if (tasa === '') { showToast('⚠️ Falta el interés'); return; }
+
+      const clienteId = body.querySelector('#f-cliente').value || null;
+      const payload = {
+        cliente_id: clienteId,
+        capital,
+        tasa_interes: Number(tasa) || 0,
+        tipo_pago: tipoPago,
+        num_cuotas: Number(body.querySelector('#f-num-cuotas').value) || 1,
+        frecuencia: body.querySelector('#f-frecuencia').value,
+        fecha_inicio: body.querySelector('#f-fecha').value || hoyISO(),
+      };
+      try {
+        await api('PUT', `/api/solicitudes/${s.id}/aceptar`, payload);
+        closeModal();
+        showToast('✅ Préstamo creado');
+        await render();
+        ofrecerAvisoWhatsApp(s.id);
+      } catch (err) {
+        showToast('⚠️ ' + err.message);
+      }
+    };
+  });
+}
+
+function ofrecerAvisoWhatsApp(solicitudId) {
+  openModal('¡Listo! 🎉', `
+    <p style="margin-top:0">El préstamo ya está creado. ¿Querés avisarle por WhatsApp que fue aprobado?</p>
+    <div class="item-actions">
+      <button class="btn btn-secundario" id="btn-despues" style="flex:1">Más tarde</button>
+      <button class="btn btn-whatsapp" id="btn-avisar-ya" style="flex:1">📲 Avisar ahora</button>
+    </div>
+  `, (body) => {
+    body.querySelector('#btn-despues').onclick = closeModal;
+    body.querySelector('#btn-avisar-ya').onclick = () => {
+      closeModal();
+      avisarSolicitudPorWhatsApp(solicitudId);
     };
   });
 }
