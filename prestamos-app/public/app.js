@@ -272,26 +272,52 @@ function deshacerPago(cuotaId) {
 
 // ---------- Vista: Clientes ----------
 
+function categoriaCliente(c) {
+  if (c.saldo_vencido > 0) return 'atrasados';
+  if (c.saldo_pendiente > 0) return 'al_dia';
+  return 'sin_deuda';
+}
+
 async function renderClientes(app) {
   const clientes = await api('GET', '/api/clientes');
   state.clientes = clientes;
 
+  const cantAtrasados = clientes.filter((c) => categoriaCliente(c) === 'atrasados').length;
+  const cantAlDia = clientes.filter((c) => categoriaCliente(c) === 'al_dia').length;
+  const cantSinDeuda = clientes.filter((c) => categoriaCliente(c) === 'sin_deuda').length;
+
   app.innerHTML = `
     <div class="search-box"><input type="text" id="buscar-cliente" placeholder="🔎 Buscar cliente por nombre o DNI..."></div>
+    <div class="filtro-chips" id="filtro-chips">
+      <div class="chip selected" data-filtro="todos">Todos (${clientes.length})</div>
+      <div class="chip chip-rojo" data-filtro="atrasados">🔴 Atrasados (${cantAtrasados})</div>
+      <div class="chip chip-amarillo" data-filtro="al_dia">🟡 Al día (${cantAlDia})</div>
+      <div class="chip chip-verde" data-filtro="sin_deuda">🟢 Sin deuda (${cantSinDeuda})</div>
+    </div>
     <div id="lista-clientes"></div>
     <button class="fab" id="fab-nuevo-cliente" title="Nuevo cliente">+</button>
   `;
 
-  function pintar(filtro) {
-    const f = (filtro || '').toLowerCase();
-    const filtrados = clientes.filter((c) =>
-      c.nombre.toLowerCase().includes(f) || (c.dni || '').toLowerCase().includes(f));
+  let filtroActivo = 'todos';
+
+  function pintar(filtroTexto) {
+    const f = (filtroTexto || '').toLowerCase();
+    const orden = { atrasados: 0, al_dia: 1, sin_deuda: 2 };
+    const filtrados = clientes
+      .filter((c) => c.nombre.toLowerCase().includes(f) || (c.dni || '').toLowerCase().includes(f))
+      .filter((c) => filtroActivo === 'todos' || categoriaCliente(c) === filtroActivo)
+      .sort((a, b) => {
+        const diff = orden[categoriaCliente(a)] - orden[categoriaCliente(b)];
+        return diff !== 0 ? diff : a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+      });
     const cont = document.getElementById('lista-clientes');
     if (filtrados.length === 0) {
-      cont.innerHTML = `<div class="empty-state"><span class="emoji">👤</span>Todavía no cargaste clientes.<br>Apretá el botón + para agregar el primero.</div>`;
+      cont.innerHTML = `<div class="empty-state"><span class="emoji">👤</span>${clientes.length === 0 ? 'Todavía no cargaste clientes.<br>Apretá el botón + para agregar el primero.' : 'No hay clientes en esta categoría.'}</div>`;
       return;
     }
-    cont.innerHTML = filtrados.map((c) => `
+    cont.innerHTML = filtrados.map((c) => {
+      const cat = categoriaCliente(c);
+      return `
       <div class="item-card" data-cliente-id="${c.id}">
         <div class="item-card-top">
           <div>
@@ -303,9 +329,14 @@ async function renderClientes(app) {
             <div class="item-sub">por cobrar</div>
           </div>
         </div>
-        ${c.saldo_vencido > 0 ? `<div style="margin-top:8px"><span class="badge badge-vencida">Atrasado: ${moneda(c.saldo_vencido)}</span></div>` : ''}
+        <div style="margin-top:8px">
+          ${cat === 'atrasados' ? `<span class="badge badge-vencida">🔴 Atrasado: ${moneda(c.saldo_vencido)}</span>` : ''}
+          ${cat === 'al_dia' ? `<span class="badge badge-hoy">🟡 Al día</span>` : ''}
+          ${cat === 'sin_deuda' ? `<span class="badge badge-pagada">🟢 Sin deuda pendiente</span>` : ''}
+        </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     cont.querySelectorAll('[data-cliente-id]').forEach((el) => {
       el.onclick = () => abrirDetalleCliente(el.dataset.clienteId);
     });
@@ -313,6 +344,14 @@ async function renderClientes(app) {
 
   pintar('');
   document.getElementById('buscar-cliente').addEventListener('input', (e) => pintar(e.target.value));
+  document.getElementById('filtro-chips').querySelectorAll('.chip').forEach((chip) => {
+    chip.onclick = () => {
+      document.querySelectorAll('#filtro-chips .chip').forEach((c) => c.classList.remove('selected'));
+      chip.classList.add('selected');
+      filtroActivo = chip.dataset.filtro;
+      pintar(document.getElementById('buscar-cliente').value);
+    };
+  });
   document.getElementById('fab-nuevo-cliente').onclick = () => abrirFormCliente();
 }
 
@@ -364,7 +403,23 @@ async function abrirDetalleCliente(clienteId) {
   const cliente = await api('GET', `/api/clientes/${clienteId}`);
   const prestamosHtml = cliente.prestamos.length === 0
     ? `<div class="empty-state">Este cliente todavía no tiene préstamos.</div>`
-    : cliente.prestamos.map((p) => `
+    : cliente.prestamos.map((p) => {
+      const cuotasHtml = p.cuotas.map((c) => `
+        <div class="cuota-fila">
+          <div class="cuota-info">
+            <div>${p.tipo_pago === 'unico' ? 'Pago único' : 'Cuota N°' + c.numero} · ${fechaFmt(c.fecha_vencimiento)}</div>
+            <div>${badgeEstadoCuota(c.estado_visual)}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="cuota-monto">${moneda(c.monto)}</div>
+            ${c.estado === 'pendiente'
+              ? `<button class="btn btn-exito" style="margin-top:6px" data-marcar="${c.id}">✅ Pagada</button>`
+              : `<button class="btn btn-secundario" style="margin-top:6px" data-deshacer="${c.id}">↩️ Deshacer</button>`}
+            ${c.estado === 'pendiente' ? `<button class="btn btn-whatsapp" style="margin-top:6px" data-recordar="${c.id}">📲</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+      return `
       <div class="item-card">
         <div class="item-card-top">
           <div>
@@ -373,8 +428,10 @@ async function abrirDetalleCliente(clienteId) {
           </div>
           <div>${badgeEstadoPrestamo(p.estado, p.cuotas.some(c => c.estado_visual === 'vencida'))}</div>
         </div>
+        <div style="margin-top:8px">${cuotasHtml}</div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
   openModal(cliente.nombre, `
     <div class="campo-ayuda" style="margin-bottom:10px">
@@ -385,7 +442,7 @@ async function abrirDetalleCliente(clienteId) {
       <button class="btn btn-secundario" id="c-editar" style="flex:1">✏️ Editar</button>
       <button class="btn btn-peligro" id="c-borrar" style="flex:1">🗑️ Eliminar</button>
     </div>
-    <div class="section-title" style="margin-top:0">Préstamos</div>
+    <div class="section-title" style="margin-top:0">Préstamos y cuotas</div>
     ${prestamosHtml}
   `, (body) => {
     body.querySelector('#c-editar').onclick = () => abrirFormCliente(cliente);
@@ -397,6 +454,25 @@ async function abrirDetalleCliente(clienteId) {
         await render();
       });
     };
+    body.querySelectorAll('[data-marcar]').forEach((b) => {
+      b.onclick = async () => {
+        await api('PUT', `/api/cuotas/${b.dataset.marcar}/pagar`, {});
+        showToast('✅ Pago registrado');
+        closeModal();
+        await abrirDetalleCliente(clienteId);
+      };
+    });
+    body.querySelectorAll('[data-deshacer]').forEach((b) => {
+      b.onclick = async () => {
+        await api('PUT', `/api/cuotas/${b.dataset.deshacer}/deshacer`, {});
+        showToast('Pago deshecho');
+        closeModal();
+        await abrirDetalleCliente(clienteId);
+      };
+    });
+    body.querySelectorAll('[data-recordar]').forEach((b) => {
+      b.onclick = () => recordarWhatsApp(b.dataset.recordar);
+    });
   });
 }
 

@@ -301,6 +301,27 @@ button.btn:active { transform: scale(0.97); }
   margin-bottom: 12px;
 }
 
+.filtro-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 14px;
+}
+.chip {
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--borde);
+  background: var(--tarjeta);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--gris-txt);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip.selected { border-color: var(--azul); background: var(--azul-bg); color: var(--azul); }
+
 .help-box {
   background: var(--azul-bg);
   color: #1e3a8a;
